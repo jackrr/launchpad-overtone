@@ -5,8 +5,11 @@
   {:mode/programmer [240 0 32 41 2 12 0 127 247]
    :mode/note [240 0 32 41 2 12 0 1 247]})
 
+(def )
+
 (defn set-mode [mode]
   (-> mode modes io/send-sysex-msg))
+
 
 (def illumination-kinds
   {:led/static 0
@@ -34,26 +37,16 @@
    :color/white 119
    :color/yellow 13})
 
-(def ^:private cells
-  (reduce (fn [cells y]
-            (merge cells
-                   (reduce (fn [cells x]
-                             (print cells)
-                             (assoc cells
-                                    (+ (* (- 7 y) 10) x) ;; 00-77, TL is origin
-                                    (+ (* (+ 1 y) 10) (+ 1 x)))) ;; 11 - 88, BL is origin
-                           {}
-                           (range 8))))
-          {}
-          (range 8)))
-
-(defn- cell-id [x y]
+(defn- cell-id
+  "Convert x y API in 0-indexed coordinate system with origin at TL
+  to Launchpad API using 1-indexed coordinates with origin at BL"
+  [x y]
   (when (or (> x 7)
             (> y 7)
             (< x 0)
             (< y 0))
     (throw (Exception. (str "Cell id " x "x" y " is out of bounds"))))
-  (get cells (+ x (* 10 y))))
+  (+ (+ 1 x) (* 10 (- 8 y))))
 
 (defn illuminate
   ([x y color]
@@ -62,6 +55,31 @@
    (io/send-illumination-signal (cell-id x y)
                                 (kind illumination-kinds)
                                 (color colors))))
+
+(defn flash
+  "Flash color on and off"
+  [x y color]
+  (illuminate x y color :led/flash))
+
+(defn pulse
+  "Pulse color on and off"
+  [x y color]
+  (illuminate x y color :led/pulse))
+
+(defn alternate
+  "Flash alterating two colors"
+  [x y color1 color2]
+  (illuminate x y color1 :led/static)
+  (illuminate x y color2 :led/flash))
+
+(defn color-rgb
+  "Set color at x y coordinate to r,g,b"
+  [x y r g b]
+  (when (let [valid-rgb? (fn [n] (and (>= n 0) (<= n 127)))]
+          (not
+           (or (valid-rgb? r) (valid-rgb? g) (valid-rgb? b))))
+    (throw (Exception. (str "Provided rgb values must be between 0 and 127"))))
+  (io/send-sysex-msg [240 0 32 41 2 12 3 3 (cell-id x y) r g b 247]))
 
 (defn clear
   "Send control signal for off color to all cells"
@@ -76,6 +94,8 @@
 
 (comment
   (set-mode :mode/programmer)
+
+  (cell-id 0 7)
 
   (illuminate 0 5 :color/off)
 

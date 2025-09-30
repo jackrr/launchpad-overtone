@@ -48,5 +48,3 @@
   "Register a callback for sysex events from pad"
   [cb]
   (midi/midi-handle-events source identity cb))
-
-
