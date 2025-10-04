@@ -5,11 +5,8 @@
   {:mode/programmer [240 0 32 41 2 12 0 127 247]
    :mode/note [240 0 32 41 2 12 0 1 247]})
 
-(def )
-
 (defn set-mode [mode]
   (-> mode modes io/send-sysex-msg))
-
 
 (def illumination-kinds
   {:led/static 0
@@ -37,6 +34,11 @@
    :color/white 119
    :color/yellow 13})
 
+(defn- error!
+  "Throw and exception with message"
+  [msg]
+  (throw (Exception. msg)))
+
 (defn- cell-id
   "Convert x y API in 0-indexed coordinate system with origin at TL
   to Launchpad API using 1-indexed coordinates with origin at BL"
@@ -45,7 +47,7 @@
             (> y 7)
             (< x 0)
             (< y 0))
-    (throw (Exception. (str "Cell id " x "x" y " is out of bounds"))))
+    (error! (str "Cell id " x "x" y " is out of bounds")))
   (+ (+ 1 x) (* 10 (- 8 y))))
 
 (defn illuminate
@@ -78,7 +80,7 @@
   (when (let [valid-rgb? (fn [n] (and (>= n 0) (<= n 127)))]
           (not
            (or (valid-rgb? r) (valid-rgb? g) (valid-rgb? b))))
-    (throw (Exception. (str "Provided rgb values must be between 0 and 127"))))
+    (error! (str "Provided rgb values must be between 0 and 127")))
   (io/send-sysex-msg [240 0 32 41 2 12 3 3 (cell-id x y) r g b 247]))
 
 (defn clear
@@ -87,17 +89,38 @@
   (let [channel (:led/static illumination-kinds)
         color (:color/off colors)]
     (doall
-     (for [cell-id (vals cells)]
-       (io/send-illumination-signal cell-id channel color)))))
+     (for [x (range 8)
+           y (range 8)]
+       (io/send-illumination-signal (cell-id x y) channel color)))))
 
-;; TODO: expose API for subscribing to button presses
+(defn on-button
+  "Subscribe to button interactions"
+  [subscription-name handler]
+  (io/subscribe-midi
+   subscription-name
+   (fn [msg]
+     (handler (select-keys msg [:note :command :velocity :data0 :data1 :data2])))))
+
+(defn button-unsubscribe
+  "Clear handler alias"
+  [subscription-name]
+  (io/unsubscribe-midi subscription-name))
 
 (comment
   (set-mode :mode/programmer)
 
   (cell-id 0 7)
 
-  (illuminate 0 5 :color/off)
+  (illuminate 4 5 :color/off)
 
   (clear)
+
+  (on-button :thing print)
+  (io/unsubscribe-midi :thing)
+
+  (io/subscribe-midi :logger (fn [ev] (print ev)))
+  (button-unsubscribe :logger)
+  
+  (io/subscribe-sysex :logger (fn [ev] (print ev)))
+  (io/unsubscribe-sysex :logger)
   )

@@ -6,5 +6,6 @@
   (boot-external-server)
   
   (pad/alternate 1 2 :color/magenta :color/blue)
+  (pad/clear)
   
   )

@@ -1,6 +1,7 @@
 (ns launchpad-overtone.io
   (:use overtone.core)
-  (:require [overtone.midi :as midi])
+  (:require [overtone.midi :as midi]
+            [mount.core :refer [defstate] :as mount])
   (:import (javax.sound.midi MidiDevice SysexMessage)))
 
 ;; https://userguides.novationmusic.com/hc/en-gb/articles/24001475492498-Controlling-the-Launchpad-X-surface
@@ -23,8 +24,36 @@
       (.open dev))
     (assoc source-info :transmitter (.getTransmitter dev))))
 
-(defonce source (-> (midi/midi-sources) last with-transmitter))
-(defonce sink (-> (midi/midi-sinks) last with-receiver))
+(def ^:private midi-handlers
+  "Registered callbacks for midi events"
+  (atom {}))
+
+(def ^:private sysex-handlers
+  "Registered callbacks for sysex events"
+  (atom {}))
+
+(defn- handle-midi-event
+  "Process incoming midi event to subscribers"
+  [ev]
+  (doall (for [s (vals @midi-handlers)]
+           (s ev))))
+
+(defn- handle-sysex-event
+  "Process incoming midi event to subscribers"
+  [ev]
+  (doall (for [s (vals @sysex-handlers)]
+           (s ev))))
+
+(defstate ^:private launchpad
+  :start (let [source (-> (midi/midi-sources) last with-transmitter)
+               sink   (-> (midi/midi-sinks) last with-receiver)]
+           (midi/midi-handle-events source
+                                  handle-midi-event
+                                  handle-sysex-event)
+           {:source source
+            :sink   sink})
+  ;; FIXME: event handlers pile up... how to deregister callbacks on Java API?
+  :stop (print "would deregister midi callbacks here."))
 
 (defn send-illumination-signal
   "Send illumination signal to cell.
@@ -32,19 +61,41 @@
   channel  -- channel corresponding to static/flash/pulse
   color-id -- integer mapping for desired color"
   [cell-id channel color-id]
-  (midi/midi-control sink cell-id color-id channel))
+  (midi/midi-control (:sink launchpad) cell-id color-id channel))
 
 (defn send-sysex-msg [ints]
   (let [msg (SysexMessage.)]
     (.setMessage msg (byte-array ints) (count ints))
-    (midi/midi-send-msg (:receiver sink) msg -1)))
+    (midi/midi-send-msg (-> launchpad :sink :receiver) msg -1)))
 
-(defn subscribe
+(defn subscribe-midi
   "Register a callback for midi events from pad"
-  [cb]
-  (midi/midi-handle-events source cb))
+  [name cb]
+  (swap! midi-handlers assoc name cb))
+
+(defn unsubscribe-midi
+  [name]
+  (swap! midi-handlers dissoc name))
 
 (defn subscribe-sysex
   "Register a callback for sysex events from pad"
-  [cb]
-  (midi/midi-handle-events source identity cb))
+  [name cb]
+  (swap! sysex-handlers assoc name cb))
+
+(defn unsubscribe-sysex
+  [name]
+  (swap! sysex-handlers dissoc name))
+
+(defn init []
+  (mount/start))
+
+(defn reload []
+  (mount/stop)
+  (mount/start))
+
+(comment
+  (:source launchpad)
+  
+  (init)
+  (reload)
+  )
