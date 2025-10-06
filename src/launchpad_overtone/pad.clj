@@ -107,6 +107,7 @@
   (io/unsubscribe-midi subscription-name))
 
 (comment
+  (io/init)
   (set-mode :mode/programmer)
 
   (cell-id 0 7)

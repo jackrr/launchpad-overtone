@@ -44,16 +44,20 @@
   (doall (for [s (vals @sysex-handlers)]
            (s ev))))
 
+(def ^:private last-receiver (atom nil))
+
 (defstate ^:private launchpad
   :start (let [source (-> (midi/midi-sources) last with-transmitter)
                sink   (-> (midi/midi-sinks) last with-receiver)]
-           (midi/midi-handle-events source
-                                  handle-midi-event
-                                  handle-sysex-event)
+           (reset! last-receiver
+                   (midi/midi-handle-events source
+                                             handle-midi-event
+                                             handle-sysex-event))
            {:source source
             :sink   sink})
-  ;; FIXME: event handlers pile up... how to deregister callbacks on Java API?
-  :stop (print "would deregister midi callbacks here."))
+  :stop (when-let [receiver @last-receiver]
+          (print "Deregistering midi callbacks.")
+          (.close receiver)))
 
 (defn send-illumination-signal
   "Send illumination signal to cell.
